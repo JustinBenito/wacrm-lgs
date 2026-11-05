@@ -7,6 +7,7 @@ import {
   toErrorResponse,
 } from '@/lib/auth/account'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers'
 import { submitMessageTemplate } from '@/lib/whatsapp/meta-api'
 import {
   validateTemplatePayload,
@@ -188,12 +189,10 @@ export async function POST(request: Request) {
       metaTemplateId = `dry-run-${crypto.randomUUID()}`
       metaStatus = 'PENDING'
     } else {
-      const { data: config, error: configError } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .single()
-      if (configError || !config) {
+      // Account-wide template catalog → the primary number's WABA
+      // (migration 060: an account may hold several numbers).
+      const config = await resolveWhatsAppNumber(supabase, { accountId })
+      if (!config) {
         return NextResponse.json(
           {
             error:

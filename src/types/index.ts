@@ -96,6 +96,23 @@ export interface AccountInvitation {
   accepted_by_user_id: string | null;
 }
 
+export type LeadStatus =
+  | 'new'
+  | 'contacted'
+  | 'qualified'
+  | 'proposal'
+  | 'won'
+  | 'lost';
+
+export const LEAD_STATUSES: LeadStatus[] = [
+  'new',
+  'contacted',
+  'qualified',
+  'proposal',
+  'won',
+  'lost',
+];
+
 export interface Contact {
   id: string;
   user_id: string;
@@ -119,6 +136,12 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  /** Shared-CRM lead pipeline (migration 060). */
+  lead_status?: LeadStatus;
+  /** Member responsible for this lead (account member user id). */
+  lead_owner_id?: string | null;
+  /** WhatsApp number this lead first arrived on. */
+  source_config_id?: string | null;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
@@ -174,6 +197,8 @@ export interface Conversation {
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
+  /** WhatsApp number (whatsapp_config.id) this thread runs on (migration 060). */
+  whatsapp_config_id?: string | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;

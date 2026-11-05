@@ -56,8 +56,34 @@ export async function PATCH(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = (await request.json().catch(() => null)) as
-      | { name?: unknown }
+      | { name?: unknown; agent_visibility?: unknown }
       | null;
+
+    // Inbox-privacy mode (migration 060): 'all' = agents share one inbox,
+    // 'own' = agents only see their own numbers/assigned threads.
+    if (body?.agent_visibility !== undefined && body?.name === undefined) {
+      const mode = body.agent_visibility;
+      if (mode !== "all" && mode !== "own") {
+        return NextResponse.json(
+          { error: t('account.nameMustBeString') },
+          { status: 400 },
+        );
+      }
+      const { data, error } = await ctx.supabase
+        .from("accounts")
+        .update({ agent_visibility: mode })
+        .eq("id", ctx.accountId)
+        .select("id, name, agent_visibility")
+        .single();
+      if (error) {
+        console.error("[PATCH /api/account] visibility error:", error);
+        return NextResponse.json(
+          { error: t('account.updateFailed') },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({ account: data });
+    }
     const rawName = body?.name;
 
     if (typeof rawName !== "string") {

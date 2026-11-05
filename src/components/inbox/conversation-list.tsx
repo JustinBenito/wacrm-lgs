@@ -54,7 +54,29 @@ export function ConversationList({
   initialFilter = "all",
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
-  
+
+  // Multi-number accounts (migration 060): label each thread with the
+  // WhatsApp number it runs on. Only shown when there is more than one.
+  const [numberLabels, setNumberLabels] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/whatsapp/numbers", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d || !Array.isArray(d.numbers)) return;
+        const map: Record<string, string> = {};
+        for (const n of d.numbers as { id: string; label: string | null; phone_number_id: string }[]) {
+          map[n.id] = n.label || n.phone_number_id;
+        }
+        setNumberLabels(map);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const showNumberBadge = Object.keys(numberLabels).length > 1;
+
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
     { label: t("filterUnread"), value: "unread" },
@@ -417,6 +439,11 @@ export function ConversationList({
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
                 t={t}
+                numberLabel={
+                  showNumberBadge && conv.whatsapp_config_id
+                    ? numberLabels[conv.whatsapp_config_id]
+                    : undefined
+                }
               />
             ))}
           </div>
@@ -431,6 +458,7 @@ interface ConversationItemProps {
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
   t: ReturnType<typeof useTranslations>;
+  numberLabel?: string;
 }
 
 function ConversationItem({
@@ -438,6 +466,7 @@ function ConversationItem({
   isActive,
   onSelect,
   t,
+  numberLabel,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || t("unknown");
@@ -487,6 +516,14 @@ function ConversationItem({
             {conversation.last_message_text || t("noMessagesYet")}
           </p>
           <div className="flex shrink-0 items-center gap-1.5">
+            {numberLabel ? (
+              <span
+                className="max-w-[6rem] truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                title={numberLabel}
+              >
+                {numberLabel}
+              </span>
+            ) : null}
             {conversation.unread_count > 0 && (
               <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
                 {conversation.unread_count}

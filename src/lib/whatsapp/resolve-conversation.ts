@@ -9,7 +9,7 @@
 //
 // It deliberately reuses the exact find-or-create logic the inbound
 // webhook uses (the `findExistingContact` dedupe helper, the
-// one-conversation-per-(account, contact) convention, the
+// one-conversation-per-(account, contact, number) convention, the
 // account_id-tenancy / user_id-audit split) so a contact created via
 // the API is indistinguishable from one created by an inbound message.
 //
@@ -24,6 +24,7 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { parseInternationalPhone } from '@/lib/whatsapp/phone-utils';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers';
 
 export interface ResolvedConversation {
   conversationId: string;
@@ -43,7 +44,10 @@ export async function resolveConversationByPhone(
   db: SupabaseClient,
   accountId: string,
   phone: string,
-  name?: string | null
+  name?: string | null,
+  // Which of the account's WhatsApp numbers the thread should live on
+  // (migration 060). Omit for the account's primary number.
+  opts: { configId?: string | null } = {}
 ): Promise<ResolvedConversation> {
   // Raw integrator input: the leading `+` is required so the country
   // code is explicit — "4155551212" would otherwise be delivered to
@@ -59,15 +63,17 @@ export async function resolveConversationByPhone(
 
   // Fail fast (and create nothing) when the account has no WhatsApp
   // connected — the same error the send would raise anyway.
-  const { data: config } = await db
-    .from('whatsapp_config')
-    .select('id')
-    .eq('account_id', accountId)
-    .maybeSingle();
+  const config = await resolveWhatsAppNumber(db, {
+    accountId,
+    configId: opts.configId ?? null,
+    select: 'id, owner_user_id',
+  });
   if (!config) {
     throw new SendMessageError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
+      opts.configId ? 'bad_request' : 'whatsapp_not_configured',
+      opts.configId
+        ? "'whatsapp_number_id' is not a WhatsApp number of this account"
+        : 'WhatsApp not configured. Please set up your WhatsApp integration first.',
       400
     );
   }
@@ -103,6 +109,9 @@ export async function resolveConversationByPhone(
         user_id: ownerUserId,
         phone: sanitized,
         name: name || sanitized,
+        // Shared-CRM lead fields (migration 060).
+        source_config_id: config.id,
+        lead_owner_id: config.owner_user_id ?? null,
       })
       .select('id')
       .single();
@@ -144,7 +153,8 @@ export async function resolveConversationByPhone(
     db,
     accountId,
     contactId,
-    ownerUserId
+    ownerUserId,
+    config.id
   );
 
   return {
@@ -165,13 +175,15 @@ async function findOrCreateConversationRow(
   db: SupabaseClient,
   accountId: string,
   contactId: string,
-  ownerUserId: string
+  ownerUserId: string,
+  configId: string
 ): Promise<{ id: string; created: boolean }> {
   const { data: existing, error: findErr } = await db
     .from('conversations')
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('whatsapp_config_id', configId)
     .order('created_at', { ascending: true })
     .limit(1);
 
@@ -190,6 +202,7 @@ async function findOrCreateConversationRow(
       account_id: accountId,
       user_id: ownerUserId,
       contact_id: contactId,
+      whatsapp_config_id: configId,
     })
     .select('id')
     .single();
@@ -201,6 +214,7 @@ async function findOrCreateConversationRow(
         .select('id')
         .eq('account_id', accountId)
         .eq('contact_id', contactId)
+        .eq('whatsapp_config_id', configId)
         .order('created_at', { ascending: true })
         .limit(1);
       if (raced && raced.length > 0) {

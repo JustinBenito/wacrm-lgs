@@ -6,6 +6,7 @@ import {
   toErrorResponse,
 } from '@/lib/auth/account'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
@@ -131,7 +132,7 @@ function extractSampleValues(
   return sv
 }
 
-export async function POST() {
+export async function POST(request?: Request) {
   try {
     // Syncing rewrites the account-wide template catalog, which is
     // settings-class data: `canEditSettings` and the message_templates
@@ -142,13 +143,19 @@ export async function POST() {
     const limit = checkRateLimit(`whatsapp-admin:${userId}`, RATE_LIMITS.whatsappAdmin)
     if (!limit.success) return rateLimitResponse(limit)
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
+    // Templates belong to a WABA. With several numbers the catalog is
+    // synced from the account's primary number unless the caller names
+    // another one (?whatsapp_number_id=…) — numbers under the same WABA
+    // share one catalog, so the primary is right for the common case.
+    const requestedNumber = request
+      ? new URL(request.url).searchParams.get('whatsapp_number_id')
+      : null
+    const config = await resolveWhatsAppNumber(supabase, {
+      accountId,
+      configId: requestedNumber || null,
+    })
 
-    if (configError || !config) {
+    if (!config) {
       return NextResponse.json(
         {
           error:

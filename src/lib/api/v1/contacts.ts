@@ -74,12 +74,16 @@ export async function resolveAuditUserId(
   db: SupabaseClient,
   accountId: string
 ): Promise<string> {
-  const { data: config } = await db
+  // Several numbers per account (migration 060): the primary number's
+  // connector is the stable, account-wide default.
+  const { data: configs } = await db
     .from('whatsapp_config')
     .select('user_id')
     .eq('account_id', accountId)
-    .maybeSingle();
-  const configOwner = config?.user_id as string | undefined;
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1);
+  const configOwner = configs?.[0]?.user_id as string | undefined;
   if (configOwner) return configOwner;
 
   const { data: account } = await db

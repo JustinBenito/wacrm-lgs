@@ -11,6 +11,7 @@ import {
 } from '@/lib/whatsapp/phone-utils'
 import { resolveContactSendTarget } from '@/lib/whatsapp/wa-identity'
 import { assertConversationInAccount } from '@/lib/whatsapp/conversation-scope'
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers'
 import {
   resolveTemplateRow,
   templateContentText,
@@ -136,7 +137,11 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
 
   // Same for the conversation the message lands in — see
   // conversation-scope.ts (GHSA-m4fx-g6pr-hrw8).
-  await assertConversationInAccount(db, input.conversationId, input.accountId)
+  const { whatsappConfigId } = await assertConversationInAccount(
+    db,
+    input.conversationId,
+    input.accountId,
+  )
 
   // Phone number, or the business-scoped user ID when Meta has never
   // given us a number for this customer (issue #519).
@@ -148,12 +153,13 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
   }
   const sanitized = sendTarget.target
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
+  // Send from the number the conversation lives on (migration 060) so
+  // a customer is always answered from the number they wrote to.
+  const config = await resolveWhatsAppNumber(db, {
+    accountId: input.accountId,
+    configId: whatsappConfigId,
+  })
+  if (!config) {
     throw new Error(t('send.notConfigured'))
   }
 

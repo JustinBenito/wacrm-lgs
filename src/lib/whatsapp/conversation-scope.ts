@@ -23,7 +23,8 @@ const t = getT('LibErrors')
 // ------------------------------------------------------------
 
 /**
- * Throw unless `conversationId` is a conversation of `accountId`.
+ * Throw unless `conversationId` is a conversation of `accountId`; returns the
+ * WhatsApp number the conversation lives on.
  *
  * The message is deliberately the same for "no such conversation" and
  * "not yours" — the engines surface it into automation logs the
@@ -34,10 +35,10 @@ export async function assertConversationInAccount(
   db: SupabaseClient,
   conversationId: string,
   accountId: string,
-): Promise<void> {
+): Promise<{ whatsappConfigId: string | null }> {
   const { data, error } = await db
     .from('conversations')
-    .select('id')
+    .select('id, whatsapp_config_id')
     .eq('id', conversationId)
     .eq('account_id', accountId)
     .maybeSingle()
@@ -46,5 +47,12 @@ export async function assertConversationInAccount(
   }
   if (!data) {
     throw new Error(t('send.conversationNotFound'))
+  }
+  // The number (migration 060) the thread lives on — callers that go on
+  // to talk to Meta must send from THIS number, not "the account's".
+  return {
+    whatsappConfigId:
+      (data as { whatsapp_config_id?: string | null }).whatsapp_config_id ??
+      null,
   }
 }

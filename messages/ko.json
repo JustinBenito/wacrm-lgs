@@ -41,7 +41,8 @@
     "defaultAvatar": "아바타",
     "menuProfile": "프로필",
     "menuSettings": "설정",
-    "menuSignOut": "로그아웃"
+    "menuSignOut": "로그아웃",
+    "team": "Team"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -58,7 +59,8 @@
     "defaultAvatar": "아바타",
     "menuProfile": "프로필",
     "menuSettings": "설정",
-    "menuSignOut": "로그아웃"
+    "menuSignOut": "로그아웃",
+    "team": "Team"
   },
   "ModeToggle": {
     "switchMode": "{mode} 모드로 전환"
@@ -749,6 +751,20 @@
       "toastRenameFailed": "필드 이름을 변경할 수 없습니다.",
       "toastDeleteFailed": "필드를 삭제할 수 없습니다.",
       "toastDeleted": "\"{name}\"을(를) 삭제했습니다."
+    },
+    "lead": {
+      "status": "Lead status",
+      "owner": "Lead owner",
+      "unowned": "Unassigned",
+      "saveFailed": "Could not update the lead",
+      "statuses": {
+        "new": "New",
+        "contacted": "Contacted",
+        "qualified": "Qualified",
+        "proposal": "Proposal",
+        "won": "Won",
+        "lost": "Lost"
+      }
     }
   },
   "Pipelines": {
@@ -2227,6 +2243,28 @@
       "textPlaceholder": "삽입할 메시지 텍스트",
       "cancel": "취소",
       "save": "저장"
+    },
+    "numbers": {
+      "title": "Team numbers",
+      "description": "Every rep can connect their own WhatsApp number. All chats, leads and notes still land in one shared CRM.",
+      "empty": "No numbers connected yet.",
+      "primary": "Default",
+      "owner": "Owner",
+      "unassigned": "Unassigned",
+      "makePrimary": "Make default",
+      "remove": "Remove number",
+      "confirmRemove": "Remove {name}? Existing conversations stay in the CRM but can no longer send from it.",
+      "saveFailed": "Could not save changes",
+      "added": "Number added",
+      "visibilityTitle": "Who can see conversations?",
+      "visibilityAll": "Shared inbox",
+      "visibilityOwn": "Own numbers only",
+      "visibilityAllHelp": "Every agent sees all conversations. Admins always see everything.",
+      "visibilityOwnHelp": "Agents only see conversations on their own number or assigned to them. Contacts and leads stay shared; admins see everything.",
+      "addTitle": "Add a WhatsApp number",
+      "label": "Label",
+      "pin": "Two-step PIN (production numbers)",
+      "add": "Add number"
     }
   },
   "SignupPage": {
@@ -2887,7 +2925,12 @@
       "phoneCheckFailed": "전화번호 메타데이터 확인 실패: {message}",
       "wabaNoApps": "WABA에 구독된 앱이 없습니다. 설정을 다시 저장해 구독하세요.",
       "wabaCheckFailed": "WABA 구독 확인 실패: {message}",
-      "noWabaId": "등록된 WABA ID가 없습니다 — WABA ID 없이는 웹훅을 연결할 수 없습니다. 양식에 추가한 후 다시 저장하세요."
+      "noWabaId": "등록된 WABA ID가 없습니다 — WABA ID 없이는 웹훅을 연결할 수 없습니다. 양식에 추가한 후 다시 저장하세요.",
+      "labelInvalid": "Label must be text.",
+      "ownerInvalid": "The selected owner is not a member of this account.",
+      "numberNotFound": "That WhatsApp number was not found in this account.",
+      "numberAlreadyAdded": "This phone number is already connected in this account.",
+      "numberIdRequired": "This account has several WhatsApp numbers — specify which one (id)."
     },
     "media": {
       "idRequired": "미디어 ID는 필수입니다",
@@ -2906,7 +2949,8 @@
     "send": {
       "idsRequired": "conversation_id 또는 contact_id와 message_type이 필요합니다",
       "contactNotFound": "연락처를 찾을 수 없습니다",
-      "openConversationFailed": "이 연락처와 대화를 열지 못했습니다"
+      "openConversationFailed": "이 연락처와 대화를 열지 못했습니다",
+      "numberNotAllowed": "You are not allowed to send from this WhatsApp number."
     },
     "templates": {
       "invalidId": "잘못된 템플릿 ID입니다.",
@@ -2934,5 +2978,33 @@
       "metaApiStatus": "Meta API 오류: {status}",
       "syncFailed": "템플릿을 동기화하지 못했습니다"
     }
+  },
+  "Team": {
+    "title": "Team overview",
+    "description": "Every number, rep and lead in one place.",
+    "adminOnly": "Only admins can view the team overview.",
+    "loadFailed": "Could not load the team overview",
+    "lastDays": "{days}d",
+    "totalLeads": "Total leads",
+    "unownedLeads": "Leads without an owner",
+    "unassignedOpen": "Open, unassigned chats",
+    "numbers": "Numbers",
+    "funnel": "Lead funnel",
+    "byNumber": "By WhatsApp number",
+    "number": "Number",
+    "owner": "Owner",
+    "conversations": "Chats",
+    "open": "Open",
+    "awaiting": "Awaiting reply",
+    "inbound": "Inbound",
+    "outbound": "Outbound",
+    "leadsFrom": "Leads from",
+    "default": "default",
+    "byMember": "By team member",
+    "member": "Member",
+    "role": "Role",
+    "assigned": "Assigned chats",
+    "leadsOwned": "Leads owned",
+    "messagesSent": "Messages sent"
   }
 }
