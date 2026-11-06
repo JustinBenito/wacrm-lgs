@@ -323,15 +323,19 @@ async function createStubForUnknownTemplate(p: StubParams): Promise<void> {
     )
     return
   }
-  const rows = (configs ?? []) as { account_id: string; user_id: string }[]
-  if (rows.length !== 1) {
+  const allRows = (configs ?? []) as { account_id: string; user_id: string }[]
+  // Several numbers of ONE account can sit under the same WABA
+  // (migration 060) — that is still an unambiguous owner. Only a WABA
+  // claimed by more than one ACCOUNT is ambiguous.
+  const accountIds = new Set(allRows.map((r) => r.account_id))
+  if (accountIds.size !== 1) {
     console.warn(
-      `[template-webhook] ${kind} for unknown template ${where} — ${rows.length === 0 ? 'no' : rows.length} whatsapp_config rows match that WABA id; not creating a stub. Run "Sync from Meta" for the owning account.`,
+      `[template-webhook] ${kind} for unknown template ${where} — ${allRows.length === 0 ? 'no whatsapp_config rows' : `${allRows.length} whatsapp_config rows across ${accountIds.size} accounts`} match that WABA id; not creating a stub. Run "Sync from Meta" for the owning account.`,
     )
     return
   }
 
-  const config = rows[0]
+  const config = allRows[0]
   // account_id is tenancy; user_id is the NOT NULL audit FK — the
   // config owner, same convention the webhook uses for inbound writes.
   // `category` and `status` fall back to their column defaults unless

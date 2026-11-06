@@ -28,6 +28,7 @@ import {
 } from '@/lib/whatsapp/waba-pairing'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { resolveVerifyTokenForSave } from '@/lib/whatsapp/verify-token'
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { getT } from '@/lib/i18n/translate'
 
@@ -106,7 +107,7 @@ function metaFailure(err: unknown, step: MetaConnectStep, ctx: MetaErrorContext)
  *   { connected: false, reason: 'meta_api_error',   message: '...',
  *     meta: { code, subcode, fbtrace_id, step, field, message } }
  */
-export async function GET() {
+export async function GET(request?: Request) {
   try {
     const supabase = await createClient()
 
@@ -131,19 +132,16 @@ export async function GET() {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, waba_id, access_token, status')
-      .eq('account_id', accountId)
-      .maybeSingle()
-
-    if (configError) {
-      console.error('Error fetching whatsapp_config:', configError)
-      return NextResponse.json(
-        { connected: false, reason: 'db_error', message: t('whatsappConfig.fetchFailed') },
-        { status: 200 }
-      )
-    }
+    // ?id=<number id> tests one specific number; otherwise the account
+    // primary (migration 060: an account may hold several numbers).
+    const requestedId = request
+      ? new URL(request.url).searchParams.get('id')
+      : null
+    const config = await resolveWhatsAppNumber(supabase, {
+      accountId,
+      configId: requestedId || null,
+      select: 'phone_number_id, waba_id, access_token, status',
+    })
 
     if (!config) {
       return NextResponse.json(
@@ -263,7 +261,29 @@ export async function POST(request: Request) {
     if (!limit.success) return rateLimitResponse(limit)
 
     const body = await request.json()
-    const { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    const {
+      phone_number_id,
+      waba_id,
+      access_token,
+      verify_token,
+      pin,
+      // Multi-number fields (migration 060).
+      id: numberId,
+      label,
+      owner_user_id,
+      is_primary,
+    } = body
+
+    if (label !== undefined && label !== null && typeof label !== 'string') {
+      return NextResponse.json({ error: t('whatsappConfig.labelInvalid') }, { status: 400 })
+    }
+    if (
+      owner_user_id !== undefined &&
+      owner_user_id !== null &&
+      (typeof owner_user_id !== 'string' || owner_user_id === '')
+    ) {
+      return NextResponse.json({ error: t('whatsappConfig.ownerInvalid') }, { status: 400 })
+    }
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(
@@ -389,11 +409,71 @@ export async function POST(request: Request) {
     // around), and we need the stored verify_token — the settings form
     // never shows it, so a save that leaves the field blank must keep it
     // rather than null it out.
-    const { data: existing } = await supabase
-      .from('whatsapp_config')
-      .select('id, registered_at, phone_number_id, verify_token')
-      .eq('account_id', accountId)
-      .maybeSingle()
+    //
+    // With several numbers per account (migration 060) the row being
+    // saved is the one named by `id`; failing that, the one already
+    // holding this phone_number_id (re-saving a number); otherwise this
+    // is a brand-new number.
+    let existing: {
+      id: string
+      registered_at: string | null
+      phone_number_id: string
+      verify_token: string | null
+      is_primary: boolean
+    } | null = null
+    if (numberId) {
+      const { data } = await supabase
+        .from('whatsapp_config')
+        .select('id, registered_at, phone_number_id, verify_token, is_primary')
+        .eq('id', numberId)
+        .eq('account_id', accountId)
+        .maybeSingle()
+      if (!data) {
+        return NextResponse.json({ error: t('whatsappConfig.numberNotFound') }, { status: 404 })
+      }
+      existing = data
+    } else {
+      const { data } = await supabase
+        .from('whatsapp_config')
+        .select('id, registered_at, phone_number_id, verify_token, is_primary')
+        .eq('account_id', accountId)
+        .eq('phone_number_id', phone_number_id)
+        .maybeSingle()
+      existing = data ?? null
+    }
+
+    // Re-pointing an existing row at a phone_number_id another row of the
+    // SAME account already holds would violate the unique constraint.
+    if (existing && existing.phone_number_id !== phone_number_id) {
+      const { data: dup } = await supabase
+        .from('whatsapp_config')
+        .select('id')
+        .eq('account_id', accountId)
+        .eq('phone_number_id', phone_number_id)
+        .neq('id', existing.id)
+        .maybeSingle()
+      if (dup) {
+        return NextResponse.json(
+          { error: t('whatsappConfig.numberAlreadyAdded') },
+          { status: 409 }
+        )
+      }
+    }
+
+    // The owner must be a member of this account.
+    const ownerToSave: string | null | undefined =
+      owner_user_id === undefined ? undefined : owner_user_id
+    if (ownerToSave) {
+      const { data: ownerProfile } = await supabase
+        .from('profiles')
+        .select('user_id')
+        .eq('user_id', ownerToSave)
+        .eq('account_id', accountId)
+        .maybeSingle()
+      if (!ownerProfile) {
+        return NextResponse.json({ error: t('whatsappConfig.ownerInvalid') }, { status: 400 })
+      }
+    }
 
     // Encrypt sensitive tokens before storing
     let encryptedAccessToken: string
@@ -427,7 +507,7 @@ export async function POST(request: Request) {
     // when the same number is already registered and no PIN was
     // supplied — re-registering an already-active number with a
     // stale PIN would actually fail and undo the active subscription.
-    let registeredAt: string | null = sameNumber ? existing.registered_at : null
+    let registeredAt: string | null = sameNumber ? (existing?.registered_at ?? null) : null
     let registrationError: string | null = null
     let registrationMeta: ReturnType<typeof metaErrorPayload> | null = null
     // True when registration was deliberately skipped because no PIN
@@ -509,10 +589,45 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     }
 
+    // Presentation fields. `undefined` leaves a column untouched on
+    // update; a new number defaults to being owned by whoever adds it.
+    const labelToSave =
+      typeof label === 'string' ? label.trim().slice(0, 80) || null : undefined
+
+    // Primary handling: the first number of an account is the primary;
+    // asking for primary demotes the previous one (unique partial index).
+    const { count: numberCount } = await supabase
+      .from('whatsapp_config')
+      .select('id', { count: 'exact', head: true })
+      .eq('account_id', accountId)
+    const makePrimary =
+      is_primary === true || (!existing && (numberCount ?? 0) === 0)
+    if (makePrimary) {
+      const { error: demoteErr } = await supabase
+        .from('whatsapp_config')
+        .update({ is_primary: false })
+        .eq('account_id', accountId)
+        .eq('is_primary', true)
+        .neq('id', existing?.id ?? '00000000-0000-0000-0000-000000000000')
+      if (demoteErr) {
+        console.error('Error demoting previous primary number:', demoteErr)
+        return NextResponse.json(
+          { error: t('whatsappConfig.saveFailed') },
+          { status: 500 }
+        )
+      }
+    }
+
     if (existing) {
+      const updateRow: Record<string, unknown> = { ...baseRow }
+      if (labelToSave !== undefined) updateRow.label = labelToSave
+      if (ownerToSave !== undefined) updateRow.owner_user_id = ownerToSave
+      if (makePrimary) updateRow.is_primary = true
+
       const { error: updateError } = await supabase
         .from('whatsapp_config')
-        .update(baseRow)
+        .update(updateRow)
+        .eq('id', existing.id)
         .eq('account_id', accountId)
 
       if (updateError) {
@@ -524,14 +639,18 @@ export async function POST(request: Request) {
       }
     } else {
       // Insert with both columns: `account_id` is the tenancy key
-      // (NOT NULL post-017, UNIQUE so duplicates trip the constraint
-      // up-front), `user_id` is the audit column identifying which
+      // (NOT NULL post-017), `user_id` is the audit column identifying which
       // member of the account saved the config.
       const { error: insertError } = await supabase
         .from('whatsapp_config')
         .insert({
           account_id: accountId,
           user_id: userId,
+          label: labelToSave ?? null,
+          // Defaults to the member who adds it; an admin setting a number
+          // up for a rep passes owner_user_id.
+          owner_user_id: ownerToSave === undefined ? userId : ownerToSave,
+          is_primary: makePrimary,
           ...baseRow,
         })
 
@@ -586,13 +705,46 @@ export async function POST(request: Request) {
  * Used by the "Reset Configuration" button to recover from a corrupted
  * encrypted token (mismatched ENCRYPTION_KEY across environments).
  */
-export async function DELETE() {
+export async function DELETE(request?: Request) {
   try {
     const { supabase, accountId } = await requireRole('admin')
+
+    // Which number to remove (?id=<number id>). Omitting it is only
+    // allowed when the account has exactly one number (the old
+    // single-number behaviour the "Reset configuration" button relied on).
+    const requestedId = request
+      ? new URL(request.url).searchParams.get('id')
+      : null
+
+    const { data: numbers, error: listError } = await supabase
+      .from('whatsapp_config')
+      .select('id, is_primary, created_at')
+      .eq('account_id', accountId)
+      .order('created_at', { ascending: true })
+    if (listError) {
+      console.error('Error listing whatsapp_config:', listError)
+      return NextResponse.json(
+        { error: t('whatsappConfig.deleteFailed') },
+        { status: 500 }
+      )
+    }
+
+    const target = requestedId
+      ? (numbers ?? []).find((n) => n.id === requestedId)
+      : (numbers ?? []).length === 1
+        ? (numbers ?? [])[0]
+        : undefined
+    if (!target) {
+      return NextResponse.json(
+        { error: requestedId ? t('whatsappConfig.numberNotFound') : t('whatsappConfig.numberIdRequired') },
+        { status: requestedId ? 404 : 400 }
+      )
+    }
 
     const { error: deleteError } = await supabase
       .from('whatsapp_config')
       .delete()
+      .eq('id', target.id)
       .eq('account_id', accountId)
 
     if (deleteError) {
@@ -601,6 +753,19 @@ export async function DELETE() {
         { error: t('whatsappConfig.deleteFailed') },
         { status: 500 }
       )
+    }
+
+    // Removing the primary promotes the oldest remaining number so the
+    // account always has a default sender.
+    if (target.is_primary) {
+      const next = (numbers ?? []).find((n) => n.id !== target.id)
+      if (next) {
+        await supabase
+          .from('whatsapp_config')
+          .update({ is_primary: true })
+          .eq('id', next.id)
+          .eq('account_id', accountId)
+      }
     }
 
     return NextResponse.json({ success: true })

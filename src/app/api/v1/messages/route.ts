@@ -23,7 +23,8 @@
 //       "params": ["A123"] | { "body": [...] }   // array = positional body; object = structured
 //     },
 //     "reply_to_message_id": "<uuid>",       // optional, must be in the same conversation
-//     "name": "Jane Doe"                     // optional, names a newly-created contact
+//     "name": "Jane Doe",                    // optional, names a newly-created contact
+//     "whatsapp_number_id": "<uuid>"         // optional, which of the account's numbers to send from (default: primary)
 //   }
 //
 // Response (201):
@@ -105,7 +106,14 @@ export async function POST(request: Request) {
       ctx.supabase,
       ctx.accountId,
       to,
-      typeof body.name === 'string' ? body.name : null
+      typeof body.name === 'string' ? body.name : null,
+      {
+        configId:
+          typeof body.whatsapp_number_id === 'string' &&
+          body.whatsapp_number_id
+            ? body.whatsapp_number_id
+            : null,
+      }
     );
 
     if (resolved.conversationCreated) {

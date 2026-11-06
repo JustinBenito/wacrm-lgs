@@ -56,24 +56,44 @@ export async function GET(
       )
     }
 
-    // Fetch and decrypt WhatsApp config
-    const { data: config, error: configError } = await supabase
+    // Fetch the account's WhatsApp numbers. A media id belongs to the
+    // WABA that received the message, so with several numbers (migration
+    // 060) we try the number the caller names (?number=<id>) first and
+    // then each remaining one until Meta accepts the token.
+    const requestedNumber = new URL(request.url).searchParams.get('number')
+    const { data: configRows, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
-      .single()
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
 
-    if (configError || !config) {
+    if (configError || !configRows || configRows.length === 0) {
       return NextResponse.json(
         { error: t('common.whatsappNotConfigured') },
         { status: 400 }
       )
     }
 
-    const accessToken = decrypt(config.access_token)
+    const ordered = [
+      ...configRows.filter((c) => c.id === requestedNumber),
+      ...configRows.filter((c) => c.id !== requestedNumber),
+    ]
 
-    // Get the download URL from Meta
-    const mediaInfo = await getMediaUrl({ mediaId, accessToken })
+    let mediaInfo: Awaited<ReturnType<typeof getMediaUrl>> | null = null
+    let accessToken = ''
+    let lastError: unknown = null
+    for (const config of ordered) {
+      try {
+        const token = decrypt(config.access_token)
+        mediaInfo = await getMediaUrl({ mediaId, accessToken: token })
+        accessToken = token
+        break
+      } catch (err) {
+        lastError = err
+      }
+    }
+    if (!mediaInfo) throw lastError ?? new Error('Media lookup failed')
 
     // Download the binary data
     const { buffer, contentType } = await downloadMedia({

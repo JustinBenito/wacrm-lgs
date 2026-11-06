@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag } from '@/types';
+import { LEAD_STATUSES, type Contact, type Tag, type ContactTag, type LeadStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -65,6 +65,12 @@ import { pageAfterRangeError, pageAfterShrink } from '@/lib/contacts/page-bounds
 
 const PAGE_SIZE = 25;
 
+interface TeamMember {
+  user_id: string;
+  full_name: string;
+  email: string | null;
+}
+
 interface ContactWithTags extends Contact {
   tags?: Tag[];
 }
@@ -77,7 +83,29 @@ export default function ContactsPage() {
   const canEditSettings = useCan('edit-settings');
 
   const [contacts, setContacts] = useState<ContactWithTags[]>([]);
+
+  useEffect(() => {
+    fetch('/api/account/members', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setTeamMembers(d.members))
+      .catch(() => {});
+  }, []);
+
+  async function updateLead(
+    contactId: string,
+    patch: { lead_status?: LeadStatus; lead_owner_id?: string | null },
+  ) {
+    const prev = contacts;
+    setContacts((cs) => cs.map((c) => (c.id === contactId ? { ...c, ...patch } : c)));
+    const { error } = await supabase.from('contacts').update(patch).eq('id', contactId);
+    if (error) {
+      setContacts(prev);
+      toast.error(tLead('saveFailed'));
+    }
+  }
   const [loading, setLoading] = useState(true);
+  const tLead = useTranslations('Contacts.lead');
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
@@ -564,6 +592,8 @@ export default function ContactsPage() {
               <TableHead className="text-muted-foreground">{t('tableColumns.phone')}</TableHead>
               <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.email')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.company')}</TableHead>
+              <TableHead className="text-muted-foreground">{tLead('status')}</TableHead>
+              <TableHead className="text-muted-foreground hidden md:table-cell">{tLead('owner')}</TableHead>
               <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.tags')}</TableHead>
               <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
               <TableHead className="text-muted-foreground w-12" />
@@ -572,7 +602,7 @@ export default function ContactsPage() {
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={10} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="size-6 animate-spin text-primary" />
                     <p className="text-sm text-muted-foreground">{t('loading')}</p>
@@ -581,7 +611,7 @@ export default function ContactsPage() {
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={10} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="size-8 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">
@@ -630,6 +660,37 @@ export default function ContactsPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground hidden lg:table-cell text-sm">
                     {contact.company || <span className="text-muted-foreground">-</span>}
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <select
+                      aria-label={tLead('status')}
+                      className="h-7 rounded-md border bg-background px-1.5 text-xs"
+                      value={contact.lead_status ?? 'new'}
+                      disabled={!canEdit}
+                      onChange={(e) => updateLead(contact.id, { lead_status: e.target.value as LeadStatus })}
+                    >
+                      {LEAD_STATUSES.map((st) => (
+                        <option key={st} value={st}>
+                          {tLead(`statuses.${st}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
+                    <select
+                      aria-label={tLead('owner')}
+                      className="h-7 max-w-[10rem] rounded-md border bg-background px-1.5 text-xs"
+                      value={contact.lead_owner_id ?? ''}
+                      disabled={!canEdit}
+                      onChange={(e) => updateLead(contact.id, { lead_owner_id: e.target.value || null })}
+                    >
+                      <option value="">{tLead('unowned')}</option>
+                      {teamMembers.map((m) => (
+                        <option key={m.user_id} value={m.user_id}>
+                          {m.full_name || m.email}
+                        </option>
+                      ))}
+                    </select>
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
                     <div className="flex flex-wrap gap-1">

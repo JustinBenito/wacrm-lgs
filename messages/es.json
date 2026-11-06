@@ -41,7 +41,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Perfil",
     "menuSettings": "Configuración",
-    "menuSignOut": "Cerrar sesión"
+    "menuSignOut": "Cerrar sesión",
+    "team": "Team"
   },
   "Header": {
     "dashboard": "Panel",
@@ -58,7 +59,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Perfil",
     "menuSettings": "Configuración",
-    "menuSignOut": "Cerrar sesión"
+    "menuSignOut": "Cerrar sesión",
+    "team": "Team"
   },
   "ModeToggle": {
     "switchMode": "Cambiar al modo {mode}"
@@ -749,6 +751,20 @@
       "toastRenameFailed": "No se pudo renombrar el campo.",
       "toastDeleteFailed": "No se pudo eliminar el campo.",
       "toastDeleted": "\"{name}\" eliminado."
+    },
+    "lead": {
+      "status": "Lead status",
+      "owner": "Lead owner",
+      "unowned": "Unassigned",
+      "saveFailed": "Could not update the lead",
+      "statuses": {
+        "new": "New",
+        "contacted": "Contacted",
+        "qualified": "Qualified",
+        "proposal": "Proposal",
+        "won": "Won",
+        "lost": "Lost"
+      }
     }
   },
   "Pipelines": {
@@ -2227,6 +2243,28 @@
       "textPlaceholder": "El texto del mensaje que se insertará",
       "cancel": "Cancelar",
       "save": "Guardar"
+    },
+    "numbers": {
+      "title": "Team numbers",
+      "description": "Every rep can connect their own WhatsApp number. All chats, leads and notes still land in one shared CRM.",
+      "empty": "No numbers connected yet.",
+      "primary": "Default",
+      "owner": "Owner",
+      "unassigned": "Unassigned",
+      "makePrimary": "Make default",
+      "remove": "Remove number",
+      "confirmRemove": "Remove {name}? Existing conversations stay in the CRM but can no longer send from it.",
+      "saveFailed": "Could not save changes",
+      "added": "Number added",
+      "visibilityTitle": "Who can see conversations?",
+      "visibilityAll": "Shared inbox",
+      "visibilityOwn": "Own numbers only",
+      "visibilityAllHelp": "Every agent sees all conversations. Admins always see everything.",
+      "visibilityOwnHelp": "Agents only see conversations on their own number or assigned to them. Contacts and leads stay shared; admins see everything.",
+      "addTitle": "Add a WhatsApp number",
+      "label": "Label",
+      "pin": "Two-step PIN (production numbers)",
+      "add": "Add number"
     }
   },
   "SignupPage": {
@@ -2887,7 +2925,12 @@
       "phoneCheckFailed": "Falló la verificación de los datos del número: {message}",
       "wabaNoApps": "La WABA no tiene apps suscritas. Vuelve a guardar la configuración para suscribirla.",
       "wabaCheckFailed": "Falló la verificación de la suscripción de la WABA: {message}",
-      "noWabaId": "No hay ningún WABA ID registrado; los webhooks no se pueden conectar sin él. Agrégalo en el formulario y vuelve a guardar."
+      "noWabaId": "No hay ningún WABA ID registrado; los webhooks no se pueden conectar sin él. Agrégalo en el formulario y vuelve a guardar.",
+      "labelInvalid": "Label must be text.",
+      "ownerInvalid": "The selected owner is not a member of this account.",
+      "numberNotFound": "That WhatsApp number was not found in this account.",
+      "numberAlreadyAdded": "This phone number is already connected in this account.",
+      "numberIdRequired": "This account has several WhatsApp numbers — specify which one (id)."
     },
     "media": {
       "idRequired": "El ID del archivo multimedia es obligatorio",
@@ -2906,7 +2949,8 @@
     "send": {
       "idsRequired": "Se requiere conversation_id o contact_id, además de message_type",
       "contactNotFound": "Contacto no encontrado",
-      "openConversationFailed": "Error al abrir una conversación con este contacto"
+      "openConversationFailed": "Error al abrir una conversación con este contacto",
+      "numberNotAllowed": "You are not allowed to send from this WhatsApp number."
     },
     "templates": {
       "invalidId": "ID de plantilla no válido.",
@@ -2934,5 +2978,33 @@
       "metaApiStatus": "Error de la API de Meta: {status}",
       "syncFailed": "Error al sincronizar las plantillas"
     }
+  },
+  "Team": {
+    "title": "Team overview",
+    "description": "Every number, rep and lead in one place.",
+    "adminOnly": "Only admins can view the team overview.",
+    "loadFailed": "Could not load the team overview",
+    "lastDays": "{days}d",
+    "totalLeads": "Total leads",
+    "unownedLeads": "Leads without an owner",
+    "unassignedOpen": "Open, unassigned chats",
+    "numbers": "Numbers",
+    "funnel": "Lead funnel",
+    "byNumber": "By WhatsApp number",
+    "number": "Number",
+    "owner": "Owner",
+    "conversations": "Chats",
+    "open": "Open",
+    "awaiting": "Awaiting reply",
+    "inbound": "Inbound",
+    "outbound": "Outbound",
+    "leadsFrom": "Leads from",
+    "default": "default",
+    "byMember": "By team member",
+    "member": "Member",
+    "role": "Role",
+    "assigned": "Assigned chats",
+    "leadsOwned": "Leads owned",
+    "messagesSent": "Messages sent"
   }
 }

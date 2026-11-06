@@ -35,6 +35,7 @@ import {
   type InteractiveMessagePayload,
 } from '@/lib/whatsapp/interactive';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   phoneVariants,
@@ -258,19 +259,41 @@ export async function sendMessageToConversation(
   const hasValidPhone = resolvedTarget.isPhone;
   const sanitizedPhone = hasValidPhone ? sendTarget : '';
 
-  // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
+  // WhatsApp number to send from (multi-number accounts, migration 060).
+  // A thread that already lives on a number is ALWAYS answered from that
+  // number — never from another member's. A legacy thread with no number
+  // falls back to the sender's own number, then the account primary, and
+  // is stamped so it stays on that number from now on.
+  const config = await resolveWhatsAppNumber(db, {
+    accountId,
+    conversationConfigId: conversation.whatsapp_config_id ?? null,
+    userId: senderId ?? null,
+  });
 
-  if (configError || !config) {
+  if (!config) {
     throw new SendMessageError(
       'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
+      conversation.whatsapp_config_id
+        ? 'The WhatsApp number this conversation uses is no longer available. Ask an admin to reconnect it.'
+        : 'WhatsApp not configured. Please set up your WhatsApp integration first.',
       400
     );
+  }
+
+  if (!conversation.whatsapp_config_id) {
+    void db
+      .from('conversations')
+      .update({ whatsapp_config_id: config.id })
+      .eq('id', conversationId)
+      .is('whatsapp_config_id', null)
+      .then(({ error }: { error: { message: string } | null }) => {
+        if (error) {
+          console.warn(
+            '[send-message] could not stamp conversation number:',
+            error.message
+          );
+        }
+      });
   }
 
   const accessToken = decrypt(config.access_token);

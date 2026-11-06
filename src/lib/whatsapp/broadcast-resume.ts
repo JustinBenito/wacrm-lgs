@@ -22,6 +22,7 @@ import { BroadcastError, type BroadcastPlan } from '@/lib/whatsapp/broadcast-cor
 import { DELIVERY_LOCK_STALE_MS } from '@/lib/whatsapp/broadcast-delivery-lease';
 import { chunk } from '@/lib/supabase/paged-query';
 import { decrypt } from '@/lib/whatsapp/encryption';
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
 
@@ -144,7 +145,7 @@ export async function planBroadcastResume(
 ): Promise<ResumePlan> {
   const { data: broadcast, error: bcError } = await db
     .from('broadcasts')
-    .select('id, template_name, template_language')
+    .select('id, template_name, template_language, whatsapp_config_id')
     .eq('id', broadcastId)
     .eq('account_id', accountId)
     .maybeSingle();
@@ -225,12 +226,13 @@ export async function planBroadcastResume(
     );
   }
 
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-  if (configError || !config) {
+  // Resume from the number that sent the original pass (migration 060);
+  // a legacy broadcast with no recorded number uses the account primary.
+  const config = await resolveWhatsAppNumber(db, {
+    accountId,
+    configId: broadcast.whatsapp_config_id ?? null,
+  });
+  if (!config) {
     throw new BroadcastError(
       'whatsapp_not_configured',
       'WhatsApp not configured. Please set up your WhatsApp integration first.',

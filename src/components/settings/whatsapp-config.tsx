@@ -153,6 +153,9 @@ export function WhatsAppConfig() {
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', acctId)
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true })
+        .limit(1)
         .maybeSingle();
 
       if (error) {

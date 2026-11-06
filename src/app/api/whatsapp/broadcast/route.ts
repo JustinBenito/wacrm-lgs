@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import {
+  canUseNumber,
+  getAgentVisibility,
+  resolveWhatsAppNumber,
+} from '@/lib/whatsapp/numbers'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
 import {
@@ -75,7 +80,7 @@ export async function POST(request: Request) {
     // to arbitrary phone numbers from the account's WhatsApp number.
     // Nothing about that is recoverable after the fact, so the check has
     // to happen here.
-    const { supabase, accountId, userId } = await requireRole('agent')
+    const { supabase, accountId, userId, role } = await requireRole('agent')
 
     // Per-user broadcast budget. Note: this limits how often a user
     // can *start* a campaign, not how many messages go out inside
@@ -92,6 +97,9 @@ export async function POST(request: Request) {
       template_name,
       template_language,
       template_params,
+      // Which of the account's WhatsApp numbers sends the broadcast
+      // (migration 060). Defaults to the sender's own number.
+      whatsapp_number_id,
     } = body
 
     // Normalize to a list of {phone, params} regardless of shape.
@@ -123,19 +131,30 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
+    const config = await resolveWhatsAppNumber(supabase, {
+      accountId,
+      configId:
+        typeof whatsapp_number_id === 'string' && whatsapp_number_id
+          ? whatsapp_number_id
+          : null,
+      userId,
+    })
 
-    if (configError || !config) {
+    if (!config) {
       return NextResponse.json(
         {
           error:
             t('common.whatsappNotConfiguredSetup'),
         },
         { status: 400 }
+      )
+    }
+
+    const visibility = await getAgentVisibility(supabase, accountId)
+    if (!canUseNumber({ userId, role, visibility }, config)) {
+      return NextResponse.json(
+        { error: t('send.numberNotAllowed') },
+        { status: 403 }
       )
     }
 

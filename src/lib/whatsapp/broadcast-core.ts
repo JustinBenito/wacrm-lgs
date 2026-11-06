@@ -28,6 +28,7 @@ import {
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -53,6 +54,9 @@ export interface CreateBroadcastParams {
   templateName: string;
   templateLanguage?: string | null;
   recipients: BroadcastRecipientInput[];
+  /** Which of the account's WhatsApp numbers sends this broadcast
+   *  (migration 060). Omit for the account's primary number. */
+  whatsappNumberId?: string | null;
 }
 
 interface PlannedRecipient {
@@ -113,15 +117,16 @@ export async function createBroadcast(
 
   // Config (fail fast + provides the audit trail owner already resolved
   // by the caller). Meta send needs phone_number_id + decrypted token.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-  if (configError || !config) {
+  const config = await resolveWhatsAppNumber(db, {
+    accountId,
+    configId: params.whatsappNumberId ?? null,
+  });
+  if (!config) {
     throw new BroadcastError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
+      params.whatsappNumberId ? 'bad_request' : 'whatsapp_not_configured',
+      params.whatsappNumberId
+        ? "'whatsapp_number_id' is not a WhatsApp number of this account"
+        : 'WhatsApp not configured. Please set up your WhatsApp integration first.',
       400
     );
   }
@@ -226,6 +231,21 @@ export async function createBroadcast(
   }
 
   const broadcastId = createdRows[0].broadcast_id as string;
+
+  // Freeze the sending number on the broadcast so a later resume goes
+  // out from the same one. Best-effort: a failure only means a resume
+  // falls back to the account's primary number.
+  const { error: stampErr } = await db
+    .from('broadcasts')
+    .update({ whatsapp_config_id: config.id })
+    .eq('id', broadcastId)
+    .eq('account_id', accountId);
+  if (stampErr) {
+    console.warn(
+      '[broadcast-core] could not stamp broadcast number:',
+      stampErr.message
+    );
+  }
 
   // Pair each inserted recipient row back to its phone/params by
   // contact_id — unambiguous now that duplicates are collapsed.

@@ -403,7 +403,13 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           // Default ON: the column is NOT NULL DEFAULT TRUE, but a row
           // read before migration 039 lands would have it undefined,
           // and losing attachments is the failure mode worth avoiding.
-          config.mirror_inbound_media !== false
+          config.mirror_inbound_media !== false,
+          // The number this message was sent TO (migration 060). The
+          // thread lives on it, and the member who owns it owns the lead.
+          {
+            configId: config.id as string,
+            ownerUserId: (config.owner_user_id as string | null) ?? null,
+          }
         )
       }
     }
@@ -576,6 +582,13 @@ async function handleReaction(
   }
 }
 
+/** The WhatsApp number a message arrived on (migration 060). */
+interface NumberContext {
+  configId: string
+  /** Member who works this number; null when unassigned. */
+  ownerUserId: string | null
+}
+
 async function processMessage(
   message: WhatsAppMessage,
   contact: WaContactPayload | undefined,
@@ -590,7 +603,10 @@ async function processMessage(
   accessToken: string,
   // Per-account opt-out for the inbound-media mirror (migration 039).
   // See parseMessageContent for what it turns off.
-  mirrorMedia: boolean
+  mirrorMedia: boolean,
+  // Which of the account's WhatsApp numbers received this message
+  // (migration 060) and the member who works it.
+  number: NumberContext
 ) {
   // Phone number OR business-scoped user ID — Meta sends only the
   // latter for a sender who has adopted a WhatsApp username (#519).
@@ -610,7 +626,8 @@ async function processMessage(
   const contactOutcome = await findOrCreateContact(
     accountId,
     configOwnerUserId,
-    identity
+    identity,
+    number
   )
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
@@ -619,7 +636,8 @@ async function processMessage(
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
-    contactRecord.id
+    contactRecord.id,
+    number.configId
   )
   if (!convResult) return
   const conversation = convResult.conversation
@@ -1223,7 +1241,8 @@ function contactIdentityPatch(
 async function findOrCreateContact(
   accountId: string,
   configOwnerUserId: string,
-  identity: WaIdentity
+  identity: WaIdentity,
+  number: NumberContext
 ): Promise<ContactOutcome | null> {
   // BSUID first when we have one. It's stable per (user, business
   // portfolio) and, unlike the phone number, Meta will keep sending it
@@ -1287,6 +1306,11 @@ async function findOrCreateContact(
       wa_user_id: identity.waUserId,
       wa_parent_user_id: identity.waParentUserId,
       wa_username: identity.waUsername,
+      // Shared-CRM lead fields (migration 060): the lead is "sourced"
+      // by the number that first heard from them and starts out owned
+      // by the member who works that number.
+      source_config_id: number.configId,
+      lead_owner_id: number.ownerUserId,
     })
     .select()
     .single()
@@ -1321,6 +1345,7 @@ async function findOrCreateConversation(
   accountId: string,
   configOwnerUserId: string,
   contactId: string,
+  configId: string,
 ) {
   // Look for an existing conversation in this account, oldest-first.
   //
@@ -1340,6 +1365,7 @@ async function findOrCreateConversation(
     .select('*')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('whatsapp_config_id', configId)
     .order('created_at', { ascending: true })
     .limit(1)
 
@@ -1360,6 +1386,9 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: configOwnerUserId,
       contact_id: contactId,
+      // One thread per (contact, number) — the same customer writing to
+      // two reps gets two private threads on one shared contact.
+      whatsapp_config_id: configId,
     })
     .select()
     .single()
@@ -1375,6 +1404,7 @@ async function findOrCreateConversation(
         .select('*')
         .eq('account_id', accountId)
         .eq('contact_id', contactId)
+        .eq('whatsapp_config_id', configId)
         .order('created_at', { ascending: true })
         .limit(1)
       if (raced && raced.length > 0) {

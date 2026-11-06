@@ -68,6 +68,10 @@ export async function POST(request: Request) {
         typeof body.template_language === 'string'
           ? body.template_language
           : null,
+      whatsappNumberId:
+        typeof body.whatsapp_number_id === 'string' && body.whatsapp_number_id
+          ? body.whatsapp_number_id
+          : null,
       recipients: recipients.map((r) => ({
         to: typeof r?.to === 'string' ? r.to : '',
         params: Array.isArray(r?.params) ? r.params : undefined,

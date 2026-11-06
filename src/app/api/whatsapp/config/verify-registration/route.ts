@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveWhatsAppNumber } from '@/lib/whatsapp/numbers'
 import {
   getSubscribedApps,
   verifyPhoneNumber,
@@ -32,7 +33,7 @@ const t = getT('Api')
  * rather than a generic error toast. The combined `live` flag is
  * what the UI badges on.
  */
-export async function GET() {
+export async function GET(request?: Request) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -62,11 +63,15 @@ export async function GET() {
     })
   }
 
-  const { data: config } = await supabase
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .maybeSingle()
+  // Which number to diagnose (?id=<number id>); defaults to the primary
+  // (migration 060: an account may hold several numbers).
+  const requestedId = request
+    ? new URL(request.url).searchParams.get('id')
+    : null
+  const config = await resolveWhatsAppNumber(supabase, {
+    accountId,
+    configId: requestedId || null,
+  })
 
   if (!config) {
     return NextResponse.json({

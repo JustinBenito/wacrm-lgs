@@ -12,6 +12,11 @@ import {
   SendMessageError,
 } from '@/lib/whatsapp/send-message'
 import { isUniqueViolation } from '@/lib/contacts/dedupe'
+import {
+  canUseNumber,
+  getAgentVisibility,
+  resolveWhatsAppNumber,
+} from '@/lib/whatsapp/numbers'
 import { getT } from '@/lib/i18n/translate'
 
 const t = getT('Api')
@@ -36,7 +41,7 @@ export async function POST(request: Request) {
     // still delivered a real WhatsApp message to the customer and merely
     // failed to record it (surfacing as "sent to Meta but failed to save
     // to DB"). RLS can't un-send that, so the role check belongs here.
-    const { supabase, accountId, userId } = await requireRole('agent')
+    const { supabase, accountId, userId, role } = await requireRole('agent')
 
     // Per-user rate limit. Bucket key is scoped to this route so
     // `/broadcast` has an independent budget.
@@ -62,6 +67,10 @@ export async function POST(request: Request) {
       template_message_params,
       interactive_payload,
       reply_to_message_id,
+      // Optional (contact_id path only): which of the account's WhatsApp
+      // numbers to open the thread on. Defaults to the sender's own
+      // number, then the account primary (migration 060).
+      whatsapp_number_id,
     } = body
 
     if ((!conversationIdInput && !contact_id) || !message_type) {
@@ -130,11 +139,35 @@ export async function POST(request: Request) {
         )
       }
 
+      // Which number the new thread lives on, and may this member use it?
+      const number = await resolveWhatsAppNumber(supabase, {
+        accountId,
+        configId:
+          typeof whatsapp_number_id === 'string' && whatsapp_number_id
+            ? whatsapp_number_id
+            : null,
+        userId,
+      })
+      if (!number) {
+        return NextResponse.json(
+          { error: t('common.whatsappNotConfiguredDot') },
+          { status: 400 }
+        )
+      }
+      const visibility = await getAgentVisibility(supabase, accountId)
+      if (!canUseNumber({ userId, role, visibility }, number)) {
+        return NextResponse.json(
+          { error: t('send.numberNotAllowed') },
+          { status: 403 }
+        )
+      }
+
       const resolved = await findOrCreateConversation(
         supabase,
         accountId,
         userId,
-        contact_id
+        contact_id,
+        number.id
       )
       if (!resolved) {
         return NextResponse.json(
@@ -198,7 +231,7 @@ type SendSupabase = Awaited<ReturnType<typeof createClient>>
 
 /**
  * Return the contact's conversation id in this account, creating one if
- * it doesn't exist yet. Mirrors the webhook's find-or-create so an
+ * it doesn't exist yet on the given number. Mirrors the webhook's find-or-create so an
  * inbound-then-outbound (or outbound-first) sequence converges on a single
  * thread per contact. Runs under the caller's RLS — the conversations_insert
  * policy requires account agent membership, which the caller already is.
@@ -208,13 +241,16 @@ async function findOrCreateConversation(
   accountId: string,
   userId: string,
   contactId: string,
+  configId: string,
 ): Promise<string | null> {
+  // One thread per (contact, number) — migration 060.
   const findExisting = async () => {
     const { data } = await supabase
       .from('conversations')
       .select('id')
       .eq('account_id', accountId)
       .eq('contact_id', contactId)
+      .eq('whatsapp_config_id', configId)
       .maybeSingle()
     return data?.id ?? null
   }
@@ -228,6 +264,7 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: userId,
       contact_id: contactId,
+      whatsapp_config_id: configId,
     })
     .select('id')
     .single()
